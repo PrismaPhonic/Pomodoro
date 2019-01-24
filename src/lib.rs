@@ -1,5 +1,31 @@
+#[macro_use]
+extern crate structopt;
+
+use std::io::{self, Write};
 use std::thread::sleep;
 use std::time::{Duration, SystemTime};
+
+use std::error::Error;
+use termion::{clear, cursor};
+
+use structopt::StructOpt;
+
+#[derive(StructOpt, Debug)]
+#[structopt(name = "pomodoro", about = "a rust based pomodoro timer")]
+/// You can use this terminal program to start a pomodoro timer
+pub enum PomodoroConfig {
+    #[structopt(name = "start")]
+    /// Starts your pomodoro timer
+    Start,
+}
+
+pub fn run(config: PomodoroConfig) -> Result<(), Box<dyn Error>> {
+    match config {
+        PomodoroConfig::Start => start_pomodoro(),
+    }
+
+    Ok(())
+}
 
 #[derive(Debug)]
 pub struct StateTracker {
@@ -79,6 +105,11 @@ impl StateTracker {
     }
 }
 
+fn start_pomodoro() {
+    let mut pomodoro_tracker = StateTracker::new();
+    pomodoro_tracker.start_work();
+}
+
 #[derive(Debug)]
 enum PomodoroState {
     Working,
@@ -124,14 +155,23 @@ impl Clock {
     }
 
     pub fn countdown(&mut self) {
+        let (x, y) = termion::terminal_size().unwrap();
         loop {
             sleep(Duration::new(1, 0));
             self.decrement_one_second();
             let current_clock = self.get_time();
+
+            print!(
+                "{}{}{}",
+                clear::All,
+                cursor::Goto(x / 2, y / 2),
+                self.get_time()
+            );
+            io::stdout().flush().unwrap();
+
             if current_clock == "00:00".to_string() {
                 break;
             }
-            println!("{}", self.get_time())
         }
     }
 }
