@@ -154,22 +154,43 @@ impl Clock {
         format!("{:02}:{:02}", self.minutes, self.seconds)
     }
 
+    pub fn draw_work_clock(&self) -> () {
+        let (x, y) = termion::terminal_size().unwrap();
+        let clock = format!("\r\n
+╭───────────────────────────────────────╮
+│                                       │
+│             Time to Work!             │
+│                 {:02}:{:02}                 │
+│                                       │
+╰───────────────────────────────────────╯
+", self.minutes, self.seconds);
+        print!("{}", clear::All);
+        for (i, line) in clock.lines().enumerate() {
+            println!(
+                "{}{}{}",
+                clear::CurrentLine,
+                cursor::Goto((x / 2) - 20, (y / 2) + i as u16),
+                line
+            );
+        }
+    }
+
     pub fn countdown(&mut self) {
         let (x, y) = termion::terminal_size().unwrap();
         loop {
             sleep(Duration::new(1, 0));
             self.decrement_one_second();
-            let current_clock = self.get_time();
+            self.draw_work_clock();
 
-            print!(
-                "{}{}{}",
-                clear::All,
-                cursor::Goto(x / 2, y / 2),
-                self.get_time()
-            );
+            // print!(
+            //     "{}{}{}",
+            //     clear::All,
+            //     cursor::Goto(x / 2, y / 2),
+            //     current_clock,
+            // );
             io::stdout().flush().unwrap();
 
-            if current_clock == "00:00".to_string() {
+            if self.get_ms_from_time() == 0 {
                 break;
             }
         }
