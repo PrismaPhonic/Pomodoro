@@ -13,11 +13,12 @@ use termion::AsyncReader;
 use termion::{clear, cursor};
 
 /// The pomodoro menu.
-const POMODORO_MENU: &'static str = "╔═════════════════╗\n\r\
-                                     ║───┬ Pomodoro────║\n\r\
-                                     ║ s ┆ start next  ║\n\r\
-                                     ║ q ┆ quit        ║\n\r\
-                                     ╚═══╧═════════════╝";
+const POMODORO_MENU: &'static str = "\r\n
+╔═════════════════╗
+║───┬ Pomodoro────║
+║ s ┆ start       ║
+║ q ┆ quit        ║
+╚═══╧═════════════╝";
 
 pub fn run() -> Result<(), Box<dyn Error>> {
     let (x, y) = termion::terminal_size().unwrap();
@@ -38,46 +39,18 @@ pub struct PomodoroSession<R, W> {
 impl<R: Read, W: Write> PomodoroSession<R, W> {
     fn start(&mut self) {
         write!(self.stdout, "{}", cursor::Hide).unwrap();
-        self.pomodoro_start_prompt();
-
-        self.begin_cycle();
-    }
-
-    fn pomodoro_start_prompt(&mut self) {
-        write!(
-            self.stdout,
-            "{}{}",
-            termion::cursor::Goto((&self.width / 2) - 10, (&self.height / 2) - 2),
-            POMODORO_MENU
-        )
-        .unwrap();
-
-        self.stdout.flush().unwrap();
-        loop {
-            let mut buf = [0];
-            self.stdin.read(&mut buf).unwrap();
-            match buf[0] {
-                b's' => return,
-                _ => continue,
-            }
-        }
+        self.display_menu();
     }
 
     fn begin_cycle(&mut self) {
         self.start_work();
-        match wait_for_next_command() {
-            Command::Restart => println!("GOT COMMAND"),
-            _ => println!("DIDN'T GET SHIT"),
-        }
+        self.display_menu();
     }
 
     pub fn start_work(&mut self) {
         self.pomodoro_tracker.set_work_state();
-        self.clock.set_time_minutes(25);
+        self.clock.set_time_minutes(1);
         self.countdown();
-
-        self.pomodoro_tracker.set_break_state();
-        self.start_break();
     }
 
     pub fn countdown(&mut self) {
@@ -92,6 +65,10 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
         loop {
             sleep(Duration::new(1, 0));
 
+            if let Command::Quit = self.async_command_listen() {
+                return;
+            }
+
             self.clock.decrement_one_second();
             self.draw_work_screen();
 
@@ -99,19 +76,9 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
                 break;
             }
         }
-    }
 
-    pub fn countdown_break(&mut self) {
-        loop {
-            sleep(Duration::new(1, 0));
-
-            self.clock.decrement_one_second();
-            self.draw_rest_screen();
-
-            if &self.clock.get_ms_from_time() == &0 {
-                break;
-            }
-        }
+        self.pomodoro_tracker.set_break_state();
+        self.start_break();
     }
 
     pub fn start_break(&mut self) {
@@ -123,13 +90,30 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
     }
 
     pub fn short_break(&mut self) {
-        self.clock.set_time_minutes(5);
+        self.clock.set_time_minutes(1);
         self.countdown();
     }
 
     pub fn long_break(&mut self) {
         self.clock.set_time_minutes(30);
         self.countdown();
+    }
+
+    pub fn countdown_break(&mut self) {
+        loop {
+            sleep(Duration::new(1, 0));
+
+            if let Command::Quit = self.async_command_listen() {
+                return;
+            }
+
+            self.clock.decrement_one_second();
+            self.draw_rest_screen();
+
+            if &self.clock.get_ms_from_time() == &0 {
+                break;
+            }
+        }
     }
 
     /**
@@ -153,7 +137,7 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
             write!(
                 self.stdout,
                 "{}{}{}",
-                cursor::Goto((&self.width / 2) - 20, (&self.height / 2) + i as u16),
+                cursor::Goto((&self.width / 2) - 20, (&self.height / 2) - 3 + i as u16),
                 clear::CurrentLine,
                 line
             )
@@ -165,11 +149,66 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
         write!(
             self.stdout,
             "\r\n{}{}Work Period {} of 4",
-            cursor::Goto((&self.width / 2) - 8, (&self.height / 2) + 8),
+            cursor::Goto((&self.width / 2) - 8, (&self.height / 2) + 5),
             clear::CurrentLine,
             &self.pomodoro_tracker.current_order.unwrap(),
         )
         .unwrap();
+    }
+
+    pub fn display_menu(&mut self) {
+        for (i, line) in POMODORO_MENU.lines().enumerate() {
+            write!(
+                self.stdout,
+                "{}{}{}",
+                cursor::Goto((&self.width / 2) - 10, (&self.height / 2) - 3 + i as u16),
+                clear::CurrentLine,
+                line
+            )
+            .unwrap();
+        }
+
+        self.stdout.flush().unwrap();
+
+        match self.wait_for_next_command() {
+            Command::Start => self.begin_cycle(),
+            Command::Quit => return,
+            Command::Stop => (),
+            Command::Restart => (),
+            Command::Reset => (),
+            Command::None => (),
+        }
+    }
+
+    pub fn wait_for_next_command(&mut self) -> Command {
+        let mut command = Command::None;
+
+        while let Command::None = command {
+            let mut buf = [0];
+            self.stdin.read(&mut buf).unwrap();
+            command = match buf[0] {
+                b's' => Command::Start,
+                b'x' => Command::Stop,
+                b'r' => Command::Restart,
+                b'q' => Command::Quit,
+                _ => continue,
+            }
+        }
+
+        command
+    }
+
+    pub fn async_command_listen(&mut self) -> Command {
+        let mut buf = [0];
+        self.stdin.read(&mut buf).unwrap();
+        let command = match buf[0] {
+            b'x' => Command::Stop,
+            b'r' => Command::Restart,
+            b'q' => Command::Quit,
+            _ => Command::None,
+        };
+
+        command
     }
 }
 
@@ -252,51 +291,12 @@ impl StateTracker {
     }
 }
 
-fn wait_for_next_command() -> Command {
-    let mut command = Command::None;
-
-    // while let Command::None = command {
-    let stdin = io::stdin();
-    let (x, y) = termion::terminal_size().unwrap();
-
-    let mut stdout = io::stdout().into_raw_mode().unwrap();
-    write!(
-        stdout,
-        "{}{}Press r to restart",
-        termion::clear::All,
-        termion::cursor::Goto((x / 2) - 10, (y / 2) - 2),
-    )
-    .unwrap();
-
-    stdout.flush().unwrap();
-
-    for c in stdin.keys() {
-        write!(
-            stdout,
-            "{}{}",
-            termion::cursor::Goto(1, 1),
-            termion::clear::CurrentLine
-        )
-        .unwrap();
-
-        let evt = c.unwrap();
-        command = match evt {
-            Key::Char('r') => Command::Restart,
-            _ => Command::None,
-        };
-
-        stdout.flush().unwrap();
-    }
-    // }
-
-    command
-}
-
 pub enum Command {
     Start,
     Stop,
     Restart,
     Reset,
+    Quit,
     None,
 }
 
