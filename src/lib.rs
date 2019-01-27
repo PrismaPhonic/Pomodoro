@@ -10,7 +10,7 @@ use termion::input::TermRead;
 use termion::raw::IntoRawMode;
 use termion::raw::RawTerminal;
 use termion::AsyncReader;
-use termion::{clear, cursor};
+use termion::{clear, cursor, style};
 
 /// The pomodoro menu.
 const POMODORO_MENU: &'static str = "\r\n
@@ -49,7 +49,7 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
 
     pub fn start_work(&mut self) {
         self.pomodoro_tracker.set_work_state();
-        self.clock.set_time_minutes(1);
+        self.clock.set_time_minutes(25);
         self.countdown();
     }
 
@@ -90,12 +90,12 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
     }
 
     pub fn short_break(&mut self) {
-        self.clock.set_time_minutes(1);
+        self.clock.set_time_minutes(5);
         self.countdown();
     }
 
     pub fn long_break(&mut self) {
-        self.clock.set_time_minutes(30);
+        self.clock.set_time_minutes(20);
         self.countdown();
     }
 
@@ -104,7 +104,7 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
             sleep(Duration::new(1, 0));
 
             if let Command::Quit = self.async_command_listen() {
-                return;
+                break;
             }
 
             self.clock.decrement_one_second();
@@ -122,8 +122,8 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
 
     pub fn draw_work_screen(&mut self) {
         let clock = self.clock.gen_work_clock();
-        self.draw_clock(clock);
         self.draw_work_count();
+        self.draw_clock(clock);
     }
 
     pub fn draw_rest_screen(&mut self) {
@@ -157,13 +157,27 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
     }
 
     pub fn display_menu(&mut self) {
-        for (i, line) in POMODORO_MENU.lines().enumerate() {
+        let lines = POMODORO_MENU.lines();
+        let mut last_i = 0;
+        for (i, line) in lines.enumerate() {
             write!(
                 self.stdout,
                 "{}{}{}",
-                cursor::Goto((&self.width / 2) - 10, (&self.height / 2) - 3 + i as u16),
+                cursor::Goto((&self.width / 2) - 9, (&self.height / 2) - 3 + i as u16),
                 clear::CurrentLine,
-                line
+                line,
+            )
+            .unwrap();
+            last_i = i;
+        }
+
+        // clear 4 lines below also so it clears out ascii left over from clock
+        for i in last_i + 1..last_i + 4 {
+            write!(
+                self.stdout,
+                "{}{}",
+                cursor::Goto((&self.width / 2) - 9, (&self.height / 2) - 3 + i as u16),
+                clear::CurrentLine,
             )
             .unwrap();
         }
@@ -231,14 +245,9 @@ impl StateTracker {
     fn increment_cycle(&mut self) {
         let new_order = match self.current_order {
             Some(num) if num < 4 => Some(num + 1),
-            None => Some(1),
-            _ => None,
+            _ => Some(1),
         };
         self.current_order = new_order;
-    }
-
-    fn restart_cycle(&mut self) {
-        self.current_order = None;
     }
 
     pub fn get_order(&self) -> Option<i32> {
@@ -462,6 +471,14 @@ fn init(width: u16, height: u16) {
 
     pomodoro_screen.start();
 
+    write!(
+        pomodoro_screen.stdout,
+        "{}{}{}",
+        clear::All,
+        style::Reset,
+        cursor::Goto(1, 1)
+    )
+    .unwrap();
     pomodoro_screen.stdout.flush().unwrap();
 }
 
