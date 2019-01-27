@@ -1,12 +1,8 @@
 use pomodoro;
 use std::process;
 
-use structopt::StructOpt;
-
 fn main() {
-    let config = pomodoro::PomodoroConfig::from_args();
-
-    if let Err(e) = pomodoro::run(config) {
+    if let Err(e) = pomodoro::run() {
         eprintln!("Application error: {}", e);
         process::exit(1);
     }
