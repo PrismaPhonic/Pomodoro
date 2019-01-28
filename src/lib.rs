@@ -16,9 +16,27 @@ use notify_rust::Notification;
 const POMODORO_MENU: &'static str = "\r\n
 ╔═════════════════╗
 ║───┬ Pomodoro────║
-║ s ┆ start       ║
+║ s ┆ start next  ║
 ║ q ┆ quit        ║
 ╚═══╧═════════════╝";
+
+/// Initial pomodoro welcome menu
+pub const POMODORO_START_PROMPT: &'static str = "
+╔══════════════════════════════╗
+║──Start your first Pomodoro!─-║
+║──────────────────────────────║
+║ s ┆ start                    ║
+║ q ┆ quit     Press s         ║
+║ x ┆ pause    to start!       ║
+║ r ┆ restart                  ║
+╚═══╧══════════════════════════╝";
+
+/// Controls layout always on screen when clock is rolling
+pub const CONTROLS: &'static str = "
+-----controls-----
+  qq   ~ quit
+  r    ~ restart
+";
 
 /// Pinging sound when clock is up
 #[cfg(target_os = "macos")]
@@ -62,12 +80,12 @@ pub struct PomodoroSession<R, W> {
 impl<R: Read, W: Write> PomodoroSession<R, W> {
     fn start(&mut self) {
         write!(self.stdout, "{}", cursor::Hide).unwrap();
-        self.display_menu();
+        self.display_menu(Some(POMODORO_START_PROMPT));
     }
 
     fn begin_cycle(&mut self) {
         self.start_work();
-        self.display_menu();
+        self.display_menu(None);
     }
 
     pub fn start_work(&mut self) {
@@ -174,7 +192,7 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
             }
 
             self.clock.decrement_one_second();
-            self.draw_rest_screen();
+            self.draw_break_screen();
 
             if &self.clock.get_ms_from_time() == &0 {
                 break;
@@ -197,10 +215,11 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
     pub fn draw_work_screen(&mut self) {
         let clock = self.clock.gen_clock("Time to Work!");
         self.draw_work_count();
+        self.draw_controls_help();
         self.draw_clock(clock);
     }
 
-    pub fn draw_rest_screen(&mut self) {
+    pub fn draw_break_screen(&mut self) {
         let clock = self.clock.gen_clock("Time to Chill");
         self.draw_work_count();
         self.draw_clock(clock);
@@ -230,14 +249,43 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
         .unwrap();
     }
 
-    pub fn display_menu(&mut self) {
-        let lines = POMODORO_MENU.lines();
+    pub fn draw_controls_help(&mut self) {
+        for (i, line) in CONTROLS.lines().enumerate() {
+            write!(
+                self.stdout,
+                "{}{}{}",
+                cursor::Goto((&self.width / 2) - 8, (&self.height / 2) + 6 + i as u16),
+                clear::CurrentLine,
+                line
+            )
+            .unwrap();
+        }
+    }
+
+    pub fn display_menu(&mut self, menu: Option<&'static str>) {
+        // standard menu height and width
+        let mut w = 18;
+        let mut h = 6;
+
+        let lines = if let Some(menu) = menu {
+            // assuming we got the prompt menu so mutating h and w accordingly
+            w = 32;
+            h = 8;
+
+            menu.lines()
+        } else {
+            POMODORO_MENU.lines()
+        };
+
         let mut last_i = 0;
         for (i, line) in lines.enumerate() {
             write!(
                 self.stdout,
                 "{}{}{}",
-                cursor::Goto((&self.width / 2) - 9, (&self.height / 2) - 3 + i as u16),
+                cursor::Goto(
+                    (&self.width / 2) - (w / 2),
+                    (&self.height / 2) - (h / 2) + i as u16
+                ),
                 clear::CurrentLine,
                 line,
             )
@@ -245,8 +293,8 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
             last_i = i;
         }
 
-        // clear 4 lines below also so it clears out ascii left over from clock
-        for i in last_i + 1..last_i + 4 {
+        // clear 7 lines below also so it clears out ascii left over from clock
+        for i in last_i + 1..last_i + 7 {
             write!(
                 self.stdout,
                 "{}{}",
