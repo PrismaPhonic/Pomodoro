@@ -38,15 +38,15 @@ use structopt::StructOpt;
 pub struct PomodoroConfig {
     #[structopt(short = "w", long = "work", default_value = "25")]
     /// Sets length of work period in minutes
-    work: u64,
+    work_time: u64,
 
     #[structopt(short = "s", long = "shortbreak", default_value = "5")]
     /// Sets length of your short break in minutes
-    short_break: u64,
+    short_break_time: u64,
 
     #[structopt(short = "l", long = "longbreak", default_value = "20")]
     /// Sets length of your long break in minutes
-    long_break: u64,
+    long_break_time: u64,
 }
 
 pub struct PomodoroSession<R, W> {
@@ -72,15 +72,18 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
 
     pub fn start_work(&mut self) {
         self.pomodoro_tracker.set_work_state();
-        self.clock.set_time_minutes(25);
+        self.clock.set_time_minutes(self.config.work_time);
         self.countdown();
     }
 
     pub fn countdown(&mut self) {
         match self.pomodoro_tracker.current_state {
             PomodoroState::Working => self.countdown_work(),
-            PomodoroState::ShortBreak | PomodoroState::LongBreak => {
-                self.countdown_break();
+            PomodoroState::ShortBreak => {
+                self.countdown_break(self.config.short_break_time);
+            }
+            PomodoroState::LongBreak => {
+                self.countdown_break(self.config.long_break_time);
             }
             _ => (),
         }
@@ -88,7 +91,7 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
 
     pub fn countdown_work(&mut self) {
         loop {
-            let elapsed: u64 = (self
+            let true_elapsed: u64 = (self
                 .pomodoro_tracker
                 .started_at
                 .unwrap()
@@ -99,9 +102,9 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
             // in milliseconds to get the current elapsed "clock time" - then
             // correct any errors from actual elapsed time and add 1 second to
             // sleep to sync our display clock
-            let current = (self.config.work * 60_000) - self.clock.get_ms_from_time();
+            let clock_elapsed = (self.config.work_time * 60_000) - self.clock.get_ms_from_time();
 
-            let sync_offset = elapsed - current;
+            let sync_offset = true_elapsed - clock_elapsed;
 
             sleep(Duration::from_millis(1000 - sync_offset));
 
@@ -137,18 +140,34 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
     }
 
     pub fn short_break(&mut self) {
-        self.clock.set_time_minutes(1);
+        self.clock.set_time_minutes(self.config.short_break_time);
         self.countdown();
     }
 
     pub fn long_break(&mut self) {
-        self.clock.set_time_minutes(20);
+        self.clock.set_time_minutes(self.config.long_break_time);
         self.countdown();
     }
 
-    pub fn countdown_break(&mut self) {
+    pub fn countdown_break(&mut self, duration: u64) {
         loop {
-            sleep(Duration::new(1, 0));
+            let true_elapsed: u64 = (self
+                .pomodoro_tracker
+                .started_at
+                .unwrap()
+                .elapsed()
+                .as_millis()) as u64;
+
+            // take break time in milliseconds and subtract from current clock time
+            // in milliseconds + work time in ms to get the current elapsed
+            // "clock time" - then correct any errors from actual elapsed time and
+            // add 1 second to sleep to sync our display clock
+            let clock_elapsed = (duration * 60_000) - self.clock.get_ms_from_time()
+                + (self.config.work_time * 60_000);
+
+            let sync_offset = true_elapsed - clock_elapsed;
+
+            sleep(Duration::from_millis(1000 - sync_offset));
 
             if let Command::Quit = self.async_command_listen() {
                 break;
@@ -483,13 +502,6 @@ mod tests {
         pstate.increment_cycle();
         pstate.increment_cycle();
         pstate.increment_cycle();
-        assert_eq!(pstate.get_order(), None);
-    }
-
-    #[test]
-    fn test_cycle_restart() {
-        let mut pstate = StateTracker::new();
-        pstate.restart_cycle();
         assert_eq!(pstate.get_order(), None);
     }
 }
