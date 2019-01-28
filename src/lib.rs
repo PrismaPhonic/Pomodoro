@@ -1,16 +1,16 @@
-// use std::io::{stdin, stdout, Write};
+#[macro_use]
+extern crate structopt;
+
 use std::io;
 use std::io::{Read, Write};
 use std::thread::sleep;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant};
 
 use std::error::Error;
-use termion::event::{Event, Key};
-use termion::input::TermRead;
 use termion::raw::IntoRawMode;
-use termion::raw::RawTerminal;
-use termion::AsyncReader;
 use termion::{clear, cursor, style};
+
+use notify_rust::Notification;
 
 /// The pomodoro menu.
 const POMODORO_MENU: &'static str = "\r\n
@@ -20,11 +20,33 @@ const POMODORO_MENU: &'static str = "\r\n
 ║ q ┆ quit        ║
 ╚═══╧═════════════╝";
 
-pub fn run() -> Result<(), Box<dyn Error>> {
-    let (x, y) = termion::terminal_size().unwrap();
-    init(x, y);
+/// Pinging sound when clock is up
+#[cfg(target_os = "macos")]
+static SOUND: &'static str = "Ping";
 
-    Ok(())
+#[cfg(all(unix, not(target_0s = "macos")))]
+static SOUND: &'static str = "alarm-clock-elapsed";
+
+/**
+ * Terminal flag settings
+ */
+use structopt::StructOpt;
+
+#[derive(StructOpt, Debug)]
+#[structopt(name = "pomodoro", about = "a rust based pomodoro timer")]
+/// You can use this terminal program to start a pomodoro timer
+pub struct PomodoroConfig {
+    #[structopt(short = "w", long = "work", default_value = "25")]
+    /// Sets length of work period in minutes
+    work: u64,
+
+    #[structopt(short = "s", long = "shortbreak", default_value = "5")]
+    /// Sets length of your short break in minutes
+    short_break: u64,
+
+    #[structopt(short = "l", long = "longbreak", default_value = "20")]
+    /// Sets length of your long break in minutes
+    long_break: u64,
 }
 
 pub struct PomodoroSession<R, W> {
@@ -34,6 +56,7 @@ pub struct PomodoroSession<R, W> {
     height: u16,
     pomodoro_tracker: StateTracker,
     clock: Clock,
+    config: PomodoroConfig,
 }
 
 impl<R: Read, W: Write> PomodoroSession<R, W> {
@@ -56,14 +79,31 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
     pub fn countdown(&mut self) {
         match self.pomodoro_tracker.current_state {
             PomodoroState::Working => self.countdown_work(),
-            PomodoroState::ShortBreak | PomodoroState::LongBreak => self.countdown_break(),
+            PomodoroState::ShortBreak | PomodoroState::LongBreak => {
+                self.countdown_break();
+            }
             _ => (),
         }
     }
 
     pub fn countdown_work(&mut self) {
         loop {
-            sleep(Duration::new(1, 0));
+            let elapsed: u64 = (self
+                .pomodoro_tracker
+                .started_at
+                .unwrap()
+                .elapsed()
+                .as_millis()) as u64;
+
+            // take work time in milliseconds and subtract from current clock time
+            // in milliseconds to get the current elapsed "clock time" - then
+            // correct any errors from actual elapsed time and add 1 second to
+            // sleep to sync our display clock
+            let current = (self.config.work * 60_000) - self.clock.get_ms_from_time();
+
+            let sync_offset = elapsed - current;
+
+            sleep(Duration::from_millis(1000 - sync_offset));
 
             if let Command::Quit = self.async_command_listen() {
                 return;
@@ -76,7 +116,14 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
                 break;
             }
         }
-
+        Notification::new()
+            .summary("Pomodoro Break!")
+            .body("It's Time For a Break!")
+            .appname("Pomodoro")
+            .sound_name(SOUND)
+            .icon("clock")
+            .show()
+            .unwrap();
         self.pomodoro_tracker.set_break_state();
         self.start_break();
     }
@@ -90,7 +137,7 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
     }
 
     pub fn short_break(&mut self) {
-        self.clock.set_time_minutes(5);
+        self.clock.set_time_minutes(1);
         self.countdown();
     }
 
@@ -114,6 +161,14 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
                 break;
             }
         }
+        Notification::new()
+            .summary("Pomodoro Break Over")
+            .body("Ready for Another Round?")
+            .appname("Pomodoro")
+            .sound_name(SOUND)
+            .icon("clock")
+            .show()
+            .unwrap();
     }
 
     /**
@@ -121,15 +176,15 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
      */
 
     pub fn draw_work_screen(&mut self) {
-        let clock = self.clock.gen_work_clock();
+        let clock = self.clock.gen_clock("Time to Work!");
         self.draw_work_count();
         self.draw_clock(clock);
     }
 
     pub fn draw_rest_screen(&mut self) {
-        let clock = self.clock.gen_rest_clock();
-        self.draw_clock(clock);
+        let clock = self.clock.gen_clock("Time to Chill");
         self.draw_work_count();
+        self.draw_clock(clock);
     }
 
     pub fn draw_clock(&mut self, clock: String) {
@@ -230,7 +285,7 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
 pub struct StateTracker {
     current_order: Option<i32>,
     current_state: PomodoroState,
-    started_at: Option<SystemTime>,
+    started_at: Option<Instant>,
 }
 
 impl StateTracker {
@@ -255,38 +310,12 @@ impl StateTracker {
     }
 
     pub fn set_work_state(&mut self) {
-        let now = SystemTime::now();
+        let now = Instant::now();
         self.started_at = Some(now);
 
         self.current_state = PomodoroState::Working;
         self.increment_cycle();
     }
-
-    // pub fn set_break_state(&mut self) {
-    //     self.set_break();
-    //     self.start_break();
-    // }
-
-    // pub fn start_break(&mut self) {
-    //     match self.current_state {
-    //         PomodoroState::ShortBreak => self.short_break(),
-    //         PomodoroState::LongBreak => self.long_break(),
-    //         _ => (),
-    //     }
-    // }
-
-    // pub fn short_break(&mut self) {
-    //     let mut clock = Clock::new();
-    //     // change back - for testing
-    //     clock.set_time_minutes(1);
-    //     clock.countdown(&self);
-    // }
-
-    // pub fn long_break(&mut self) {
-    //     let mut clock = Clock::new();
-    //     clock.set_time_minutes(30);
-    //     clock.countdown(&self);
-    // }
 
     pub fn set_break_state(&mut self) {
         let break_state = match self.current_order {
@@ -309,15 +338,6 @@ pub enum Command {
     None,
 }
 
-// fn start_pomodoro() {
-//     let mut pomodoro_tracker = StateTracker::new();
-//     pomodoro_tracker.start_work();
-//     match wait_for_next_command() {
-//         Command::Restart => println!("GOT COMMAND"),
-//         _ => println!("DIDN'T GET SHIT"),
-//     }
-// }
-
 #[derive(Debug)]
 enum PomodoroState {
     Working,
@@ -327,8 +347,8 @@ enum PomodoroState {
 }
 
 struct Clock {
-    minutes: u32,
-    seconds: u32,
+    minutes: u64,
+    seconds: u64,
 }
 
 impl Clock {
@@ -339,12 +359,12 @@ impl Clock {
         }
     }
 
-    pub fn set_time_ms(&mut self, ms: u32) {
+    pub fn set_time_ms(&mut self, ms: u64) {
         self.minutes = (ms / (1000 * 60)) % 60;
         self.seconds = (ms / 1000) % 60;
     }
 
-    pub fn set_time_minutes(&mut self, minutes: u32) {
+    pub fn set_time_minutes(&mut self, minutes: u64) {
         self.set_time_ms(minutes * 60000);
     }
 
@@ -354,7 +374,7 @@ impl Clock {
         self.set_time_ms(time_in_ms);
     }
 
-    pub fn get_ms_from_time(&mut self) -> u32 {
+    pub fn get_ms_from_time(&mut self) -> u64 {
         (self.minutes * 60000) + (self.seconds * 1000)
     }
 
@@ -362,89 +382,20 @@ impl Clock {
         format!("{:02}:{:02}", self.minutes, self.seconds)
     }
 
-    pub fn gen_work_clock(&self) -> String {
+    pub fn gen_clock(&self, message: &str) -> String {
         let clock = format!("\r\n
 ╭───────────────────────────────────────╮
 │                                       │
-│             Time to Work!             │
-│                 {:02}:{:02}                 │
+│             {}             │
+│                 {}                 │
 │                                       │
 ╰───────────────────────────────────────╯
-", self.minutes, self.seconds);
+", message, self.get_time());
         clock
     }
-
-    pub fn gen_rest_clock(&self) -> String {
-        let clock = format!("\r\n
-╭───────────────────────────────────────╮
-│                                       │
-│             Time to Chill             │
-│                 {:02}:{:02}                 │
-│                                       │
-╰───────────────────────────────────────╯
-", self.minutes, self.seconds);
-        clock
-    }
-
-    pub fn draw_clock(clock: String, work_count: u8) {
-        let (x, y) = termion::terminal_size().unwrap();
-        for (i, line) in clock.lines().enumerate() {
-            print!(
-                "{}{}{}",
-                cursor::Goto((x / 2) - 20, (y / 2) + i as u16),
-                clear::CurrentLine,
-                line
-            );
-        }
-
-        print!(
-            "\r\n{}{}Work Period {} of 4",
-            cursor::Goto((x / 2) - 8, (y / 2) + 8),
-            clear::CurrentLine,
-            work_count,
-        );
-    }
-
-    // pub fn countdown(&mut self, state_tracker: &StateTracker) {
-    //     match state_tracker.current_state {
-    //         PomodoroState::Working => self.countdown_work(state_tracker),
-    //         PomodoroState::ShortBreak | PomodoroState::LongBreak => {
-    //             self.countdown_break(state_tracker)
-    //         }
-    //         _ => (),
-    //     }
-    // }
-
-    // pub fn countdown_work(&mut self, state_tracker: &StateTracker) {
-    //     loop {
-    //         sleep(Duration::new(1, 0));
-    //         self.decrement_one_second();
-    //         self.draw_work_clock(state_tracker);
-
-    //         io::stdout().flush().unwrap();
-
-    //         if self.get_ms_from_time() == 0 {
-    //             break;
-    //         }
-    //     }
-    // }
-
-    // pub fn countdown_break(&mut self, state_tracker: &StateTracker) {
-    //     loop {
-    //         sleep(Duration::new(1, 0));
-    //         self.decrement_one_second();
-    //         self.draw_rest_clock(state_tracker);
-
-    //         io::stdout().flush().unwrap();
-
-    //         if self.get_ms_from_time() == 0 {
-    //             break;
-    //         }
-    //     }
-    // }
 }
 
-fn init(width: u16, height: u16) {
+fn init(width: u16, height: u16, config: PomodoroConfig) {
     let stdout = io::stdout();
     let mut stdout = stdout.lock().into_raw_mode().unwrap();
     let stdin = termion::async_stdin();
@@ -459,6 +410,7 @@ fn init(width: u16, height: u16) {
         stdout: stdout,
         pomodoro_tracker: StateTracker::new(),
         clock: Clock::new(),
+        config,
     };
 
     write!(
@@ -473,13 +425,21 @@ fn init(width: u16, height: u16) {
 
     write!(
         pomodoro_screen.stdout,
-        "{}{}{}",
+        "{}{}{}{}",
         clear::All,
         style::Reset,
-        cursor::Goto(1, 1)
+        cursor::Goto(1, 1),
+        cursor::Show,
     )
     .unwrap();
     pomodoro_screen.stdout.flush().unwrap();
+}
+
+pub fn run(config: PomodoroConfig) -> Result<(), Box<dyn Error>> {
+    let (x, y) = termion::terminal_size().unwrap();
+    init(x, y, config);
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -496,7 +456,7 @@ mod tests {
     #[test]
     fn test_clock_minutes() {
         let mut clock = Clock::new();
-        clock.set_time_minutes(25);
+        clock.set_time_minutes(1);
         assert_eq!(clock.get_time(), "25:00");
     }
 

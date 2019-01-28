@@ -7,3 +7,5 @@ edition = "2018"
 [dependencies]
 termion = "1.5.1"
 tokio = "0.1.14"
+notify-rust = "3.5.0"
+structopt = "0.2.14"
