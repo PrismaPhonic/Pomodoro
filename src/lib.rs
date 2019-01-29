@@ -25,17 +25,16 @@ pub const POMODORO_START_PROMPT: &'static str = "
 ╔══════════════════════════════╗
 ║──Start your first Pomodoro!─-║
 ║──────────────────────────────║
-║ s ┆ start                    ║
-║ q ┆ quit     Press s         ║
-║ x ┆ pause    to start!       ║
-║ r ┆ restart                  ║
+║ s ┆ start    Press s         ║
+║ q ┆ quit     to start!       ║
+║ r ┆ reset                    ║
 ╚═══╧══════════════════════════╝";
 
 /// Controls layout always on screen when clock is rolling
 pub const CONTROLS: &'static str = "
------controls-----
-  qq   ~ quit
-  r    ~ restart
+------controls------
+  q    ~ end current
+  r    ~ reset
 ";
 
 /// Pinging sound when clock is up
@@ -94,6 +93,11 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
         self.countdown();
     }
 
+    pub fn reset_current_pomodoro(&mut self) {
+        self.pomodoro_tracker.decrement_cycle();
+        self.start_work();
+    }
+
     pub fn countdown(&mut self) {
         match self.pomodoro_tracker.current_state {
             PomodoroState::Working => self.countdown_work(),
@@ -125,6 +129,12 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
             let sync_offset = true_elapsed - clock_elapsed;
 
             sleep(Duration::from_millis(1000 - sync_offset));
+
+            match self.async_command_listen() {
+                Command::Quit => return,
+                Command::Reset => return self.reset_current_pomodoro(),
+                _ => (),
+            }
 
             if let Command::Quit = self.async_command_listen() {
                 return;
@@ -309,10 +319,9 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
         match self.wait_for_next_command() {
             Command::Start => self.begin_cycle(),
             Command::Quit => return,
-            Command::Stop => (),
-            Command::Restart => (),
             Command::Reset => (),
             Command::None => (),
+            _ => (),
         }
     }
 
@@ -324,8 +333,7 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
             self.stdin.read(&mut buf).unwrap();
             command = match buf[0] {
                 b's' => Command::Start,
-                b'x' => Command::Stop,
-                b'r' => Command::Restart,
+                b'r' => Command::Reset,
                 b'q' => Command::Quit,
                 _ => continue,
             }
@@ -338,8 +346,7 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
         let mut buf = [0];
         self.stdin.read(&mut buf).unwrap();
         let command = match buf[0] {
-            b'x' => Command::Stop,
-            b'r' => Command::Restart,
+            b'r' => Command::Reset,
             b'q' => Command::Quit,
             _ => Command::None,
         };
@@ -372,6 +379,15 @@ impl StateTracker {
         self.current_order = new_order;
     }
 
+    fn decrement_cycle(&mut self) {
+        let new_order = match self.current_order {
+            Some(num) if num > 1 => Some(num - 1),
+            Some(num) if num == 1 => None,
+            _ => Some(1),
+        };
+        self.current_order = new_order;
+    }
+
     pub fn get_order(&self) -> Option<i32> {
         self.current_order
     }
@@ -398,8 +414,6 @@ impl StateTracker {
 
 pub enum Command {
     Start,
-    Stop,
-    Restart,
     Reset,
     Quit,
     None,
