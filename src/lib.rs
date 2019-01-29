@@ -197,8 +197,10 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
 
             sleep(Duration::from_millis(1000 - sync_offset));
 
-            if let Command::Quit = self.async_command_listen() {
-                break;
+            match self.async_command_listen() {
+                Command::Quit => return,
+                Command::Reset => return self.reset_current_pomodoro(),
+                _ => (),
             }
 
             self.clock.decrement_one_second();
