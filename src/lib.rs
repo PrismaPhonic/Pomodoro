@@ -13,7 +13,7 @@ use termion::{clear, cursor, style};
 use notify_rust::Notification;
 
 /// The pomodoro menu.
-const POMODORO_MENU: &'static str = "\r\n
+const POMODORO_MENU: &'static str = "
 ╔═════════════════╗
 ║───┬ Pomodoro────║
 ║ s ┆ start next  ║
@@ -237,17 +237,44 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
         self.draw_clock(clock);
     }
 
-    pub fn draw_clock(&mut self, clock: String) {
-        for (i, line) in clock.lines().enumerate() {
+    /// Takes in an input string and prints it centered on the screen
+    /// Returns the last line it was printed on in case another method
+    /// needs to know that to clear space after it
+    pub fn draw_centered(&mut self, item: &str, height_offset: Option<u16>) -> usize {
+        let lines = item.lines();
+        let line_vec = item.lines().collect::<Vec<_>>();
+
+        let h = line_vec.len() as u16;
+        let w = line_vec[1].chars().count();
+
+        let height_offset = if let Some(offset) = height_offset {
+            offset
+        } else {
+            0
+        };
+
+        let mut last_i = 0;
+        for (i, line) in lines.enumerate() {
             write!(
                 self.stdout,
                 "{}{}{}",
-                cursor::Goto((&self.width / 2) - 20, (&self.height / 2) - 3 + i as u16),
+                cursor::Goto(
+                    (&self.width / 2) - (w / 2) as u16,
+                    (&self.height / 2) - (h / 2) + height_offset + i as u16
+                ),
                 clear::CurrentLine,
-                line
+                line,
             )
             .unwrap();
+
+            last_i = i;
         }
+
+        last_i
+    }
+
+    pub fn draw_clock(&mut self, clock: String) {
+        self.draw_centered(&clock, None);
     }
 
     pub fn draw_work_count(&mut self) {
@@ -262,59 +289,31 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
     }
 
     pub fn draw_controls_help(&mut self) {
-        for (i, line) in CONTROLS.lines().enumerate() {
+        self.draw_centered(CONTROLS, Some(6));
+    }
+
+    fn clear_lines(&mut self, lines: &[usize; 2]) {
+        for i in lines[0]..lines[1] {
             write!(
                 self.stdout,
-                "{}{}{}",
-                cursor::Goto((&self.width / 2) - 8, (&self.height / 2) + 6 + i as u16),
+                "{}{}",
+                cursor::Goto(1, (&self.height / 2) - 3 + i as u16),
                 clear::CurrentLine,
-                line
             )
             .unwrap();
         }
     }
 
     pub fn display_menu(&mut self, menu: Option<&'static str>) {
-        // standard menu height and width
-        let mut w = 18;
-        let mut h = 6;
-
-        let lines = if let Some(menu) = menu {
-            // assuming we got the prompt menu so mutating h and w accordingly
-            w = 32;
-            h = 8;
-
-            menu.lines()
+        let menu = if let Some(menu) = menu {
+            menu
         } else {
-            POMODORO_MENU.lines()
+            POMODORO_MENU
         };
 
-        let mut last_i = 0;
-        for (i, line) in lines.enumerate() {
-            write!(
-                self.stdout,
-                "{}{}{}",
-                cursor::Goto(
-                    (&self.width / 2) - (w / 2),
-                    (&self.height / 2) - (h / 2) + i as u16
-                ),
-                clear::CurrentLine,
-                line,
-            )
-            .unwrap();
-            last_i = i;
-        }
+        let last_i = self.draw_centered(menu, None);
 
-        // clear 7 lines below also so it clears out ascii left over from clock
-        for i in last_i + 1..last_i + 7 {
-            write!(
-                self.stdout,
-                "{}{}",
-                cursor::Goto((&self.width / 2) - 9, (&self.height / 2) - 3 + i as u16),
-                clear::CurrentLine,
-            )
-            .unwrap();
-        }
+        self.clear_lines(&[last_i + 1, last_i + 8]);
 
         self.stdout.flush().unwrap();
 
@@ -323,7 +322,6 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
             Command::Quit => return,
             Command::Reset => (),
             Command::None => (),
-            _ => (),
         }
     }
 
@@ -466,7 +464,7 @@ impl Clock {
     }
 
     pub fn gen_clock(&self, message: &str) -> String {
-        let clock = format!("\r\n
+        let clock = format!("
 ╭───────────────────────────────────────╮
 │                                       │
 │             {}             │
