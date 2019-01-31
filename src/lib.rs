@@ -33,8 +33,8 @@ pub const POMODORO_START_PROMPT: &'static str = "
 /// Controls layout always on screen when clock is rolling
 pub const CONTROLS: &'static str = "
 ------controls------
-  q    ~ end current
-  r    ~ reset
+ q    ~ end current
+ r    ~ reset
 ";
 
 /// Pinging sound when clock is up
@@ -281,7 +281,7 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
         write!(
             self.stdout,
             "\r\n{}{}Work Period {} of 4",
-            cursor::Goto((&self.width / 2) - 8, (&self.height / 2) + 5),
+            cursor::Goto((&self.width / 2) - 9, (&self.height / 2) + 5),
             clear::CurrentLine,
             &self.pomodoro_tracker.current_order.unwrap(),
         )
@@ -289,7 +289,7 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
     }
 
     pub fn draw_controls_help(&mut self) {
-        self.draw_centered(CONTROLS, Some(6));
+        self.draw_centered(CONTROLS, Some(8));
     }
 
     fn clear_lines(&mut self, lines: &[usize; 2]) {
