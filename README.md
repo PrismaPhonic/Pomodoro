@@ -11,11 +11,16 @@ This crate offers you a functional terminal based pomodoro clock.
 ## Installation
 
 This clock requires being built with nightly because of an experimental feature I used to keep
-the clock in sync and never fluctuating by more than 1ms.  To install:
+the clock in sync and never fluctuating by more than 1ms.  This crate (on linux) also depends
+on libdbus-1 because it uses [notify-rust](https://crates.io/crates/notify-rust).  After
+installing libdbus-1 (on linux) you can install the application with this command:
 
 ```terminal
 $ cargo +nightly install pomodoro
 ```
+
+Note: On OSX you don't need to install anything extra. Just use the above terminal command to
+install the binary crate with nightly
 
 ## Using pomodoro
 
@@ -43,3 +48,4 @@ pomodoro (back to the head of the work cycle and immediately begin countdown).
 Commands are listened for in an asynchronous and non-blocking fashion.
 
 Enjoy!
+
