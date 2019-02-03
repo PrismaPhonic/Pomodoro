@@ -204,7 +204,7 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
             .body("It's Time For a Break!")
             .appname("Pomodoro")
             .sound_name(SOUND)
-            .icon("clock")
+            .icon("appointment-soon")
             .show()
             .unwrap();
         self.pomodoro_tracker.set_break_state();
@@ -275,7 +275,7 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
             .body("Ready for Another Round?")
             .appname("Pomodoro")
             .sound_name(SOUND)
-            .icon("clock")
+            .icon("appointment-soon")
             .show()
             .unwrap();
     }
