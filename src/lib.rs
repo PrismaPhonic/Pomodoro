@@ -20,7 +20,7 @@ const POMODORO_MENU: &'static str = "
 ║ q ┆ quit        ║
 ╚═══╧═════════════╝";
 
-/// Initial pomodoro welcome menu
+/// Initial pomodoro welcome menu.
 pub const POMODORO_START_PROMPT: &'static str = "
 ╔══════════════════════════════╗
 ║──Start your first Pomodoro!─-║
@@ -30,14 +30,14 @@ pub const POMODORO_START_PROMPT: &'static str = "
 ║ r ┆ reset                    ║
 ╚═══╧══════════════════════════╝";
 
-/// Controls layout always on screen when clock is rolling
+/// Controls layout always on screen when clock is rolling.
 pub const CONTROLS: &'static str = "
 ------controls------
  q    ~ end current
  r    ~ reset
 ";
 
-/// Pinging sound when clock is up
+/// Pinging sound when clock is up.
 #[cfg(target_os = "macos")]
 static SOUND: &'static str = "Ping";
 
@@ -51,21 +51,28 @@ use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "pomodoro", about = "a rust based pomodoro timer")]
-/// You can use this terminal program to start a pomodoro timer
+/// You can use this terminal program to start a pomodoro timer.
 pub struct PomodoroConfig {
     #[structopt(short = "w", long = "work", default_value = "25")]
-    /// Sets length of work period in minutes
+    /// Sets length of work period in minutes.
     work_time: u64,
 
     #[structopt(short = "s", long = "shortbreak", default_value = "5")]
-    /// Sets length of your short break in minutes
+    /// Sets length of your short break in minutes.
     short_break_time: u64,
 
     #[structopt(short = "l", long = "longbreak", default_value = "20")]
-    /// Sets length of your long break in minutes
+    /// Sets length of your long break in minutes.
     long_break_time: u64,
 }
 
+/// This struct represents a pomodoro session - which is from the start of running the application
+/// until you terminate it. Between that time this struct will keep track of the initial height and
+/// width of the terminal window when launching pomodoro, and keep a lock on stdin and stdout so we
+/// can draw to the screen, and also accept async input from the user. Lastly, this session also
+/// holds a state tracker, the clock itself (that gets drawn) and a config file.  The config is
+/// passed in by the user.  -w flag will pass in a custom work time, -s will pass in a custom short
+/// break time, and -l will pass in a custom long break time.
 pub struct PomodoroSession<R, W> {
     stdin: R,
     stdout: W,
@@ -87,17 +94,21 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
         self.display_menu(None);
     }
 
+    /// Call a start to a work cycle.
     pub fn start_work(&mut self) {
         self.pomodoro_tracker.set_work_state();
         self.clock.set_time_minutes(self.config.work_time);
         self.countdown();
     }
 
+    /// Reset the current pomodoro by decrementing the cycle and re-running start_work.
     pub fn reset_current_pomodoro(&mut self) {
         self.pomodoro_tracker.decrement_cycle();
         self.start_work();
     }
 
+    /// Checks the pomodoro state (Working, ShortBreak, or LongBreak) and runs the appropraite
+    /// internal countdown method.
     pub fn countdown(&mut self) {
         match self.pomodoro_tracker.current_state {
             PomodoroState::Working => self.countdown_work(),
@@ -111,6 +122,7 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
         }
     }
 
+    /// Countdown count for work - with syncing so we are never more than a ms off from true time.
     pub fn countdown_work(&mut self) {
         loop {
             let true_elapsed: u64 = (self
@@ -159,6 +171,8 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
         self.start_break();
     }
 
+    /// Starts a break by matching which break state we are in (short or long) and then running the
+    /// appropriate break function.
     pub fn start_break(&mut self) {
         match self.pomodoro_tracker.current_state {
             PomodoroState::ShortBreak => self.short_break(),
@@ -167,16 +181,22 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
         }
     }
 
+    /// Sets the break time by referencing the config (flags passed in on start) and then starts
+    /// the countdown clock.
     pub fn short_break(&mut self) {
         self.clock.set_time_minutes(self.config.short_break_time);
         self.countdown();
     }
 
+    /// Sets the break time by referencing the config (flags passed in on start) and then starts
+    /// the countdown clock.
     pub fn long_break(&mut self) {
         self.clock.set_time_minutes(self.config.long_break_time);
         self.countdown();
     }
 
+    /// Countdown clock for a break - extremely similar to countdown-work - separate because the
+    /// notifications after the loops are different.  Good place for a refactor.
     pub fn countdown_break(&mut self, duration: u64) {
         loop {
             let true_elapsed: u64 = (self
@@ -224,6 +244,7 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
      * CLOCK AND DRAWING METHODS
      */
 
+    /// Draws the work clock on the screen.
     pub fn draw_work_screen(&mut self) {
         let clock = self.clock.gen_clock("Time to Work!");
         self.draw_work_count();
@@ -231,15 +252,17 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
         self.draw_clock(clock);
     }
 
+    /// Draws the break clock on the screen.
     pub fn draw_break_screen(&mut self) {
         let clock = self.clock.gen_clock("Time to Chill");
         self.draw_work_count();
         self.draw_clock(clock);
+        self.draw_controls_help();
     }
 
     /// Takes in an input string and prints it centered on the screen
     /// Returns the last line it was printed on in case another method
-    /// needs to know that to clear space after it
+    /// needs to know that to clear space after it.
     pub fn draw_centered(&mut self, item: &str, height_offset: Option<u16>) -> usize {
         let lines = item.lines();
         let line_vec = item.lines().collect::<Vec<_>>();
@@ -273,10 +296,16 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
         last_i
     }
 
+    /// Draws the clock on the screen.
     pub fn draw_clock(&mut self, clock: String) {
         self.draw_centered(&clock, None);
     }
 
+    /// Draws the current work count on the screen.
+    ///
+    /// # Example:
+    ///  
+    /// "Work Period 1 or 4"
     pub fn draw_work_count(&mut self) {
         write!(
             self.stdout,
@@ -288,6 +317,9 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
         .unwrap();
     }
 
+    /// Draws the section of the screen when the work and break clocks are rolling that actively
+    /// remind user of async commands they can issue at any time to restart or quit the current
+    /// cycle.
     pub fn draw_controls_help(&mut self) {
         self.draw_centered(CONTROLS, Some(8));
     }
@@ -304,6 +336,8 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
         }
     }
 
+    /// Displays the pomodoro menu that is seen either at the start (large menu) or between
+    /// pomodoros (small menu)
     pub fn display_menu(&mut self, menu: Option<&'static str>) {
         let menu = if let Some(menu) = menu {
             menu
@@ -325,6 +359,7 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
         }
     }
 
+    /// WAITS (in a loop) for the next user command (happens between pomodoros).
     pub fn wait_for_next_command(&mut self) -> Command {
         let mut command = Command::None;
 
@@ -342,6 +377,8 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
         command
     }
 
+    /// listens for the next command while clock is counting down in a non-blocking (async)
+    /// fashion. 
     pub fn async_command_listen(&mut self) -> Command {
         let mut buf = [0];
         self.stdin.read(&mut buf).unwrap();
@@ -355,6 +392,9 @@ impl<R: Read, W: Write> PomodoroSession<R, W> {
     }
 }
 
+/// A simple state tracker that keeps track of the pomodoro state, the current order we are in (1
+/// to 4 or None if we haven't begun our first pomodoro yet), and when the current pomodoro was
+/// started at.  (Started at is None between pomodoros).
 #[derive(Debug)]
 pub struct StateTracker {
     current_order: Option<i32>,
@@ -388,10 +428,13 @@ impl StateTracker {
         self.current_order = new_order;
     }
 
+    /// Gets the current order we are at within a pomdoro cycle (4 pomodoros per cycle).
     pub fn get_order(&self) -> Option<i32> {
         self.current_order
     }
 
+    /// Sets the current work state by storing the current time, setting our pomodoro state to
+    /// PomodoroState::Working, and then incrementing the cycle by one.
     pub fn set_work_state(&mut self) {
         let now = Instant::now();
         self.started_at = Some(now);
@@ -400,6 +443,7 @@ impl StateTracker {
         self.increment_cycle();
     }
 
+    /// Sets the break state (ShortBreak, LongBreak, or None).
     pub fn set_break_state(&mut self) {
         let break_state = match self.current_order {
             Some(_x @ 0..=3) => PomodoroState::ShortBreak,
@@ -412,6 +456,7 @@ impl StateTracker {
     }
 }
 
+/// Simple struct to translate user keystrokes into command types we can enforce with matches.
 pub enum Command {
     Start,
     Reset,
@@ -427,12 +472,15 @@ enum PomodoroState {
     None,
 }
 
-struct Clock {
+/// A simple clock struct that displays minutes and seconds, and has methods for drawing a nice
+/// border around the current dispalyed time.
+pub struct Clock {
     minutes: u64,
     seconds: u64,
 }
 
 impl Clock {
+    /// Instantiates a new clock at 00:00.
     pub fn new() -> Clock {
         Clock {
             minutes: 0,
@@ -440,29 +488,46 @@ impl Clock {
         }
     }
 
+    /// Sets clock time in absolute milliseconds.
     pub fn set_time_ms(&mut self, ms: u64) {
         self.minutes = (ms / (1000 * 60)) % 60;
         self.seconds = (ms / 1000) % 60;
     }
 
+    /// Sets clock time in absolute minutes.
     pub fn set_time_minutes(&mut self, minutes: u64) {
         self.set_time_ms(minutes * 60000);
     }
 
+    /// Decrements the clock by one full second.
     pub fn decrement_one_second(&mut self) {
         let mut time_in_ms = self.get_ms_from_time();
         time_in_ms -= 1000;
         self.set_time_ms(time_in_ms);
     }
 
+    /// Translate the current clock time back into milliseconds
     pub fn get_ms_from_time(&mut self) -> u64 {
         (self.minutes * 60000) + (self.seconds * 1000)
     }
 
+    /// Translates the clock struct into a human readable string.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// let mut clock = pomodoro::Clock::new();
+    ///
+    /// clock.set_time_minutes(5);
+    ///
+    /// assert_eq!(clock.get_time(), "05:00".to_string());
+    /// ```
     pub fn get_time(&self) -> String {
         format!("{:02}:{:02}", self.minutes, self.seconds)
     }
 
+    /// Given a message ("Get to Work", or "Time to Chill") this will generate a nicely displayed
+    /// clock with the message added.
     pub fn gen_clock(&self, message: &str) -> String {
         let clock = format!("
 ╭───────────────────────────────────────╮
@@ -476,6 +541,7 @@ impl Clock {
     }
 }
 
+// Initializes the pomodoro session (this is run from start to finish)
 fn init(width: u16, height: u16, config: PomodoroConfig) {
     let stdout = io::stdout();
     let mut stdout = stdout.lock().into_raw_mode().unwrap();
@@ -516,6 +582,8 @@ fn init(width: u16, height: u16, config: PomodoroConfig) {
     pomodoro_screen.stdout.flush().unwrap();
 }
 
+/// Basic run function that is called from the binary.  Takes the current terminal size, and config
+/// from terminal flags and passes that into our init function
 pub fn run(config: PomodoroConfig) -> Result<(), Box<dyn Error>> {
     let (x, y) = termion::terminal_size().unwrap();
     init(x, y, config);
@@ -538,7 +606,7 @@ mod tests {
     fn test_clock_minutes() {
         let mut clock = Clock::new();
         clock.set_time_minutes(1);
-        assert_eq!(clock.get_time(), "25:00");
+        assert_eq!(clock.get_time(), "01:00");
     }
 
     #[test]
@@ -564,6 +632,6 @@ mod tests {
         pstate.increment_cycle();
         pstate.increment_cycle();
         pstate.increment_cycle();
-        assert_eq!(pstate.get_order(), None);
+        assert_eq!(pstate.get_order(), Some(1));
     }
 }

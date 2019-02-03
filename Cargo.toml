@@ -3,6 +3,27 @@ name = "pomodoro"
 version = "0.1.0"
 authors = ["Peter Farr <Peter@PrismaPhonic.com>"]
 edition = "2018"
+description = "This is a pomodoro timer for your terminal! Pings Linux or OSX notification systems"
+repository = "https://github.com/PrismaPhonic/Pomodoro"
+documentation = "https://docs.rs/pomodoro"
+readme = "README.md"
+license = "MIT"
+include = [
+  "**/*.rs",
+  "Cargo.toml",
+  "README.md",
+  "icon/*",
+  "icon/",
+]
+
+[badges]
+travis-ci = { repository = "PrismaPhonic/Pomodoro", branch = "master" }
+maintenance = { status = "actively-developed" }
+
+[[bin]]
+doc = false
+name = "pomodoro"
+path = "src/bin/pomodoro.rs"
 
 [dependencies]
 termion = "1.5.1"

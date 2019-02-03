@@ -1,4 +1,4 @@
-use pomodoro;
+extern crate pomodoro;
 use std::process;
 
 use structopt::StructOpt;
