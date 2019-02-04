@@ -8,12 +8,16 @@ docs](https://docs.rs/pomodoro/badge.svg)](https://docs.rs/pomodoro)
 
 This crate offers you a functional terminal based pomodoro clock.
 
-## Installation
+# Dependencies
+
+ This application works on Linux and OSX, but not Windows (yet). On linux make sure that you
+ have libdbus-1 installed - this is an essentialy dependency so that pomodoro can integrate
+ with the linux notification system.
+
+# Installation
 
 This clock requires being built with nightly because of an experimental feature I used to keep
-the clock in sync and never fluctuating by more than 1ms.  This crate (on linux) also depends
-on libdbus-1 because it uses [notify-rust](https://crates.io/crates/notify-rust).  After
-installing libdbus-1 (on linux) you can install the application with this command:
+the clock in sync and never fluctuating by more than 1ms.  You can install the application with this command:
 
 ```terminal
 $ cargo +nightly install pomodoro
